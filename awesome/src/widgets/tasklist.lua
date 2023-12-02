@@ -1,210 +1,112 @@
----------------------------------
--- This is the tasklist widget --
----------------------------------
+local ipairs = ipairs
+local setmetatable = setmetatable
 
 -- Awesome Libs
-local awful = require('awful')
+local abutton = require('awful.button')
+local atooltip = require('awful.tooltip')
+local awidget = require('awful.widget')
+local beautiful = require('beautiful')
+local dpi = beautiful.xresources.apply_dpi
+local gtable = require('gears.table')
 local wibox = require('wibox')
-local dpi = require('beautiful').xresources.apply_dpi
-local gears = require('gears')
-local color = require('src.theme.colors')
 
-local list_update = function(widget, buttons, label, data, objects)
-	widget:reset()
-	for _, object in ipairs(objects) do
-		local task_widget = wibox.widget {
-			{
-				{
+-- Local libs
+local hover = require('src.tools.hover')
+
+local capi = { client = client }
+
+return setmetatable({}, { __call = function(_, screen)
+	return awidget.tasklist {
+		filter = awidget.tasklist.filter.currenttags,
+		layout = wibox.layout.fixed.horizontal,
+		screen = screen,
+		update_function = function(widget, _, _, _, clients)
+			widget:reset()
+
+			-- Create a task widget for each client
+			for _, client in ipairs(clients) do
+				local task_widget = wibox.widget {
 					{
 						{
-							nil,
 							{
-								id = "icon",
-								resize = true,
-								widget = wibox.widget.imagebox
+								{
+									valign = 'center',
+									halign = 'center',
+									resize = true,
+									image = client.icon or '',
+									widget = wibox.widget.imagebox,
+								},
+								width = dpi(25),
+								height = dpi(25),
+								strategy = 'exact',
+								widget = wibox.container.constraint,
 							},
-							nil,
-							layout = wibox.layout.align.horizontal,
-							id = "layout_icon"
+							{
+								id = 'text_role',
+								halign = 'center',
+								valign = 'center',
+								widget = wibox.widget.textbox,
+							},
+							spacing = dpi(10),
+							layout = wibox.layout.fixed.horizontal,
 						},
-						forced_width = dpi(33),
-						margins = dpi(3),
+						right = dpi(10),
+						left = dpi(10),
 						widget = wibox.container.margin,
-						id = "margin"
 					},
-					{
-						text = "",
-						align = "center",
-						valign = "center",
-						visible = true,
-						widget = wibox.widget.textbox,
-						id = "title"
-					},
-					layout = wibox.layout.fixed.horizontal,
-					id = "layout_it"
-				},
-				right = dpi(5),
-				left = dpi(5),
-				widget = wibox.container.margin,
-				id = "container"
-			},
-			bg = color["White"],
-			fg = color["Grey900"],
-			shape = function(cr, width, height)
-				gears.shape.rounded_rect(cr, width, height, 5)
-			end,
-			widget = wibox.container.background
-		}
+					fg = beautiful.colorscheme.fg,
+					bg = beautiful.colorscheme.bg1,
+					shape = beautiful.shape[6],
+					widget = wibox.container.background,
+				}
 
-		local task_tool_tip = awful.tooltip {
-			objects = { task_widget },
-			mode = "inside",
-			preferred_alignments = "middle",
-			preferred_positions = "bottom",
-			margins = dpi(10),
-			gaps = 0,
-			delay_show = 1
-		}
-
-		local function create_buttons(buttons, object)
-			if buttons then
-				local btns = {}
-				for _, b in ipairs(buttons) do
-					local btn = awful.button {
-						modifiers = b.modifiers,
-						button = b.button,
-						on_press = function()
-							b:emit_signal('press', object)
-						end,
-						on_release = function()
-							b:emit_signal('release', object)
+				task_widget:buttons { gtable.join(
+					abutton({}, 1, nil, function()
+						if client == capi.client.focus then
+							client.minimized = true
+						else
+							client.minimized = false
+							if not client:isvisible() and client.first_tag then
+								client.first_tag:view_only()
+							end
+							client:emit_signal('request::activate')
+							client:raise()
 						end
+					end),
+
+					abutton({}, 3, function(c)
+						client:kill()
+					end)
+				), }
+
+				local label = beautiful.user_config.taskbar_use_name and client.name or client.class or ''
+
+				-- If the client is focused, show the tooltip and add a label
+				if client == capi.client.focus then
+					atooltip {
+						text = label,
+						objects = { task_widget },
+						mode = 'outside',
+						preferred_alignments = 'middle',
+						preferred_positions = 'bottom',
+						margins = dpi(10),
+						delay_show = 1,
 					}
-					btns[#btns + 1] = btn
-				end
-				return btns
-			end
-		end
-
-		task_widget:buttons(create_buttons(buttons, object))
-
-		local text, _ = label(object, task_widget.container.layout_it.title)
-		if object == client.focus then
-			if text == nil or text == '' then
-				task_widget.container.layout_it.title:set_margins(0)
-			else
-				local text_full = text:match('>(.-)<')
-				if text_full then
-					if object.class == nil then
-						text = object.name
-					else
-						text = object.class:sub(1, 20)
-					end
-					task_tool_tip:set_text(text_full)
-					task_tool_tip:add_to_object(task_widget)
+					task_widget:get_children_by_id('text_role')[1].text = label:sub(1, 20)
+					task_widget.bg = beautiful.colorscheme.fg
+					task_widget.fg = beautiful.colorscheme.bg
 				else
-					task_tool_tip:remove_from_object(task_widget)
+					task_widget.bg = beautiful.colorscheme.bg1
+					task_widget:get_children_by_id('text_role')[1].text = ''
 				end
+
+				hover.bg_hover { widget = task_widget }
+
+				widget:add(task_widget)
+				widget:set_spacing(dpi(5))
 			end
-			task_widget:set_bg(color["White"])
-			task_widget:set_fg(color["Grey900"])
-			task_widget.container.layout_it.title:set_text(text)
-		else
-			task_widget:set_bg("#3A475C")
-			task_widget.container.layout_it.title:set_text('')
-		end
-		task_widget.container.layout_it.margin.layout_icon.icon:set_image(Get_icon(user_vars.icon_theme, object))
-		widget:add(task_widget)
-		widget:set_spacing(dpi(6))
 
-		--#region Hover_signal
-		local old_wibox, old_cursor, old_bg
-		task_widget:connect_signal(
-			"mouse::enter",
-			function()
-				old_bg = task_widget.bg
-				if object == client.focus then
-					task_widget.bg = '#dddddddd'
-				else
-					task_widget.bg = '#3A475Cdd'
-				end
-				local w = mouse.current_wibox
-				if w then
-					old_cursor, old_wibox = w.cursor, w
-					w.cursor = "hand1"
-				end
-			end
-		)
-
-		task_widget:connect_signal(
-			"button::press",
-			function()
-				if object == client.focus then
-					task_widget.bg = "#ffffffaa"
-				else
-					task_widget.bg = '#3A475Caa'
-				end
-			end
-		)
-
-		task_widget:connect_signal(
-			"button::release",
-			function()
-				if object == client.focus then
-					task_widget.bg = "#ffffffdd"
-				else
-					task_widget.bg = '#3A475Cdd'
-				end
-			end
-		)
-
-		task_widget:connect_signal(
-			"mouse::leave",
-			function()
-				task_widget.bg = old_bg
-				if old_wibox then
-					old_wibox.cursor = old_cursor
-					old_wibox = nil
-				end
-			end
-		)
-		--#endregion
-
-	end
-	return widget
-end
-
-return function(s)
-	return awful.widget.tasklist(
-		s,
-		awful.widget.tasklist.filter.currenttags,
-		awful.util.table.join(
-			awful.button(
-				{},
-				1,
-				function(c)
-					if c == client.focus then
-						c.minimized = true
-					else
-						c.minimized = false
-						if not c:isvisible() and c.first_tag then
-							c.first_tag:view_only()
-						end
-						c:emit_signal('request::activate')
-						c:raise()
-					end
-				end
-			),
-			awful.button(
-				{},
-				3,
-				function(c)
-					c:kill()
-				end
-			)
-		),
-		{},
-		list_update,
-		wibox.layout.fixed.horizontal()
-	)
-end
+			return widget
+		end,
+	}
+end, })

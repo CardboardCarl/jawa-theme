@@ -1,443 +1,387 @@
--------------------------------
--- The Notification defaults --
--------------------------------
+local setmetatable = setmetatable
+
 -- Awesome Libs
-local awful = require("awful")
-local color = require("src.theme.colors")
-local dpi = require("beautiful").xresources.apply_dpi
-local gears = require("gears")
-local menubar = require('menubar')
-local naughty = require("naughty")
-local wibox = require("wibox")
+local abutton = require('awful.button')
+local aspawn = require('awful.spawn')
+local beautiful = require('beautiful')
+local dpi = beautiful.xresources.apply_dpi
+local gcolor = require('gears.color')
+local gfilesystem = require('gears.filesystem')
+local gtable = require('gears.table')
+local naughty = require('naughty')
+local wibox = require('wibox')
 
-local icondir = awful.util.getdir("config") .. "src/assets/icons/notifications/"
+-- Third party libs
+local rubato = require('src.lib.rubato')
 
--- TODO: Figure out how to use hover effects without messing up the actions
-naughty.config.defaults.ontop = true
-naughty.config.defaults.icon_size = dpi(80)
-naughty.config.defaults.timeout = 3
-naughty.config.defaults.title = "System Notification"
-naughty.config.defaults.margin = dpi(10)
-naughty.config.defaults.position = "bottom_right"
-naughty.config.defaults.shape = function(cr, width, height)
-  gears.shape.rounded_rect(cr, width, height, dpi(10))
-end
-naughty.config.defaults.border_width = dpi(4)
-naughty.config.defaults.border_color = color["Grey800"]
-naughty.config.defaults.spacing = dpi(10)
+-- Local Libs
+local hover = require('src.tools.hover')
 
-naughty.connect_signal(
-  'request::icon',
-  function(n, context, hints)
-    if context ~= 'app_icon' then
-      return
-    end
-    local path = menubar.utils.lookup_icon(hints.app_icon) or menubar.utils.lookup_icon(hints.app_icon:lower())
-    if path then
-      n.icon = path
-    end
-  end
-)
+local capi = {
+  client = client,
+  screen = screen,
+}
 
-naughty.connect_signal(
-  "request::display",
-  function(n)
-    if n.urgency == "critical" then
-      n.title = string.format("<span foreground='%s' font='JetBrainsMono Nerd Font, ExtraBold 16'>%s</span>",
-        color["RedA200"], n.title) or ""
-      n.message = string.format("<span foreground='%s'>%s</span>", color["Red200"], n.message) or ""
-      n.app_name = string.format("<span foreground='%s'>%s</span>", color["RedA400"], n.app_name) or ""
-      n.bg = color["Grey900"]
-    else
-      n.title = string.format("<span foreground='%s' font='JetBrainsMono Nerd Font, ExtraBold 16'>%s</span>",
-        color["Pink200"], n.title) or ""
-      n.message = string.format("<span foreground='%s'>%s</span>", "#ffffffaa", n.message) or ""
-      n.bg = color["Grey900"]
-      n.timeout = n.timeout or 3
-    end
+local instance = nil
+if not instance then
+  instance = setmetatable({}, {
+    __call = function()
+      local icondir = gfilesystem.get_configuration_dir() .. 'src/assets/icons/notifications/'
 
-    local use_image = false
+      naughty.config.defaults.border_color = beautiful.colorscheme.border_color
+      naughty.config.defaults.border_width = dpi(2)
+      naughty.config.defaults.icon_size = dpi(64)
+      naughty.config.defaults.margin = dpi(10)
+      naughty.config.defaults.ontop = true
+      naughty.config.defaults.position = 'bottom_right'
+      naughty.config.defaults.spacing = dpi(10)
+      naughty.config.defaults.timeout = 5
+      naughty.config.defaults.title = 'System Notification'
 
-    if n.app_name == "Spotify" then
-      n.actions = { naughty.action {
-        program = "Spotify",
-        id = "skip-prev",
-        icon = gears.color.recolor_image(icondir .. "skip-prev.svg", color["Cyan200"])
-      }, naughty.action {
-        program = "Spotify",
-        id = "play-pause",
-        icon = gears.color.recolor_image(icondir .. "play-pause.svg", color["Cyan200"])
-      }, naughty.action {
-        program = "Spotify",
-        id = "skip-next",
-        icon = gears.color.recolor_image(icondir .. "skip-next.svg", color["Cyan200"])
-      } }
-      use_image = true
-    end
+      naughty.connect_signal('request::display', function(n)
+        if beautiful.user_config.dnd then
+          n:destroy()
+        else
+          n.app_name = n.app_name or 'System'
+          n.icon = n.icon or gfilesystem.get_configuration_dir() .. 'src/assets/CT.svg'
+          n.message = n.message or 'No message provided'
+          n.title = n.title or 'System Notification'
 
-    local action_template_widget = {}
+          local color = beautiful.colorscheme.bg_blue
+          if n.urgency == 'critical' then
+            color = beautiful.colorscheme.bg_red
+          end
 
-    if use_image then
-      action_template_widget = {
-        {
-          {
-            {
-              {
-                id = "icon_role",
-                widget = wibox.widget.imagebox
+          if n.app_name == 'Spotify' then
+            n.actions = {
+              naughty.action {
+                program = 'Spotify',
+                id = 'skip-prev',
+                name = 'Previous',
+                position = 1,
+              }, naughty.action {
+                program = 'Spotify',
+                id = 'play-pause',
+                name = 'Play/Pause',
+                position = 2,
+              }, naughty.action {
+                program = 'Spotify',
+                id = 'skip-next',
+                name = 'Next',
+                position = 3,
               },
-              id = "centered",
-              valign = "center",
-              halign = "center",
-              widget = wibox.container.place
+            }
+            n.resident = true
+          end
+
+          if n.category == 'device.added' or n.category == 'network.connected' then
+            aspawn('ogg123 /usr/share/sounds/Pop/stereo/notification/device-added.oga')
+          elseif n.category == 'device.removed' or n.category == 'network.disconnected' then
+            aspawn('ogg123 /usr/share/sounds/Pop/stereo/notification/device-removed.oga')
+          elseif n.category == 'device.error' or n.category == 'im.error' or n.category == 'network.error' or n.category ==
+              'transfer.error' then
+            aspawn('ogg123 ogg123 /usr/share/sounds/Pop/stereo/alert/battery-low.oga')
+          elseif n.category == 'email.arrived' then
+            aspawn('ogg123 /usr/share/sounds/Pop/stereo/notification/message-new-email.oga')
+          end
+
+          local action_template = wibox.widget {
+            notification = n,
+            base_layout = wibox.widget {
+              spacing = dpi(90),
+              layout = wibox.layout.flex.horizontal,
             },
-            margins = dpi(5),
-            widget = wibox.container.margin
-          },
-          forced_height = dpi(35),
-          forced_width = dpi(35),
-          fg = color["Cyan200"],
-          bg = color["Grey800"],
-          shape = function(cr, width, height)
-            gears.shape.rounded_rect(cr, width, height, dpi(6))
-          end,
-          widget = wibox.container.background,
-          id = "bgrnd"
-        },
-        id = "mrgn",
-        top = dpi(10),
-        bottom = dpi(10),
-        widget = wibox.container.margin
-      }
-    else
-      action_template_widget = {
-        {
-          {
-            {
+            widget_template = {
               {
-                id = "text_role",
-                font = "JetBrainsMono Nerd Font, Regular 12",
-                widget = wibox.widget.textbox
+                {
+                  widget = wibox.widget.textbox,
+                  id = 'text_role',
+                  valign = 'center',
+                  halign = 'center',
+                  font = beautiful.user_config.font .. ' bold 16',
+                },
+                widget = wibox.container.constraint,
+                height = dpi(35),
+                strategy = 'exact',
               },
-              id = "centered",
-              widget = wibox.container.place
+              id = 'background_role',
+              widget = wibox.container.background,
+              bg = color,
+              fg = beautiful.colorscheme.bg,
+              shape = beautiful.shape[8],
             },
-            margins = dpi(5),
-            widget = wibox.container.margin
-          },
-          fg = color["Green200"],
-          bg = color["Grey800"],
-          shape = function(cr, width, height)
-            gears.shape.rounded_rect(cr, width, height, dpi(6))
-          end,
-          widget = wibox.container.background,
-          id = "bgrnd"
-        },
-        id = "mrgn",
-        top = dpi(10),
-        bottom = dpi(10),
-        widget = wibox.container.margin
-      }
-    end
+            style = {
+              underline_normal = false,
+              underline_selected = false,
+              shape_normal = beautiful.shape[8],
+              --Don't remove or it will break
+              bg_normal = color,
+              bg_selected = color,
+              fg_normal = beautiful.colorscheme.bg,
+              fg_selected = beautiful.colorscheme.bg,
+            },
+            widget = naughty.list.actions,
+          }
 
-    local actions_template = wibox.widget {
-      notification = n,
-      base_layout = wibox.widget {
-        spacing = dpi(40),
-        layout = wibox.layout.fixed.horizontal
-      },
-      widget_template = action_template_widget,
-      style = {
-        underline_normal = false,
-        underline_selected = true,
-        bg_normal = color["Grey100"],
-        bg_selected = color["Grey200"]
-      },
-      widget = naughty.list.actions
-    }
+          -- Hack to get the action buttons to work even after update
+          for i = 1, #action_template._private.layout.children, 1 do
+            hover.bg_hover { widget = action_template._private.layout.children[i].children[1], overlay = 12, press_overlay = 24 }
+          end
+          if (#action_template._private.layout.children > 0) and action_template._private.notification[1].actions[1].program == 'Spotify' then
+            action_template._private.layout.children[1].children[1]:connect_signal('button::press', function()
+              aspawn('playerctl previous')
+            end)
+            action_template._private.layout.children[2].children[1]:connect_signal('button::press', function()
+              aspawn('playerctl play-pause')
+            end)
+            action_template._private.layout.children[3].children[1]:connect_signal('button::press', function()
+              aspawn('playerctl next')
+            end)
+          end
 
-    local w_template = wibox.widget {
-      {
-        {
-          {
-            {
+          local start_timer = n.timeout
+          if n.timeout == 0 then
+            start_timer = 5
+          end
+
+          local notification = wibox.template {
+            widget = wibox.widget {
               {
                 {
                   {
-                    {
+                    { -- Title
                       {
                         {
-                          image = gears.color.recolor_image(icondir .. "notification-outline.svg", color["Teal200"]),
-                          resize = false,
-                          widget = wibox.widget.imagebox
+                          { -- Icon
+                            {
+                              {
+                                {
+                                  {
+                                    notification = n,
+                                    widget = naughty.widget.icon,
+                                    image = n.icon,
+                                    resize = true,
+                                  },
+                                  widget = wibox.container.background,
+                                  shape = beautiful.shape[4],
+                                },
+                                widget = wibox.container.place,
+                              },
+                              widget = wibox.container.constraint,
+                              strategy = 'exact',
+                              width = dpi(20),
+                              height = dpi(20),
+                            },
+                            { -- Title
+                              {
+                                notification = n,
+                                widget = naughty.widget.title,
+                                markup = [[<span foreground="]] ..
+                                    beautiful.colorscheme.bg .. [[" font="]] .. beautiful.user_config.font .. ' bold 16' .. [[">]] .. (n.app_name or
+                                        'Unknown App') .. [[</span> | <span font="]] .. beautiful.user_config.font .. ' regular 16' .. [[">]] .. (n.title or 'System Notification') .. [[</span>]],
+                                halign = 'left',
+                                valign = 'center',
+                              },
+                              widget = wibox.container.constraint,
+                              width = dpi(430),
+                              height = dpi(35),
+                              strategy = 'max',
+                            },
+                            spacing = dpi(10),
+                            layout = wibox.layout.fixed.horizontal,
+                          },
+                          widget = wibox.container.margin,
+                          left = dpi(10),
                         },
-                        right = dpi(5),
-                        widget = wibox.container.margin
-                      },
-                      {
-                        markup = n.app_name or 'System Notification',
-                        align = "center",
-                        valign = "center",
-                        widget = wibox.widget.textbox
-                      },
-                      layout = wibox.layout.fixed.horizontal
-                    },
-                    fg = color["Teal200"],
-                    widget = wibox.container.background
-                  },
-                  margins = dpi(10),
-                  widget = wibox.container.margin
-                },
-                nil,
-                {
-                  {
-                    {
-                      text = os.date("%H:%M"),
-                      widget = wibox.widget.textbox
-                    },
-                    id = "background",
-                    fg = color["Teal200"],
-                    widget = wibox.container.background
-                  },
-                  {
-                    {
-                      {
+                        nil,
                         {
                           {
-                            font = user_vars.font.specify .. ", 10",
-                            text = "✕",
-                            align = "center",
-                            valign = "center",
-                            widget = wibox.widget.textbox
+                            { -- Clock
+                              widget = wibox.widget.textclock,
+                              format = '%H:%M',
+                              font = beautiful.user_config.font .. ' bold 16',
+                              fg = beautiful.colorscheme.bg,
+                              halign = 'right',
+                              valign = 'center',
+                            },
+                            { -- Close button
+                              {
+                                {
+                                  {
+                                    {
+                                      widget = wibox.widget.imagebox,
+                                      image = gcolor.recolor_image(icondir .. 'close.svg', beautiful.colorscheme.bg),
+                                      resize = true,
+                                      halign = 'center',
+                                      valign = 'center',
+                                    },
+                                    start_angle = 4.71239,
+                                    thickness = dpi(2),
+                                    min_value = 0,
+                                    max_value = start_timer,
+                                    value = start_timer,
+                                    widget = wibox.container.arcchart,
+                                    id = 'arc',
+                                  },
+                                  fg = beautiful.colorscheme.bg,
+                                  bg = color,
+                                  widget = wibox.container.background,
+                                  id = 'arc_bg',
+                                },
+                                strategy = 'exact',
+                                width = dpi(18),
+                                height = dpi(18),
+                                widget = wibox.container.constraint,
+                              },
+                              left = dpi(5),
+                              widget = wibox.container.margin,
+                            },
+                            layout = wibox.layout.fixed.horizontal,
                           },
-                          start_angle = 4.71239,
-                          thickness = dpi(2),
-                          min_value = 0,
-                          max_value = 360,
-                          value = 360,
-                          widget = wibox.container.arcchart,
-                          id = "arc_chart"
+                          right = dpi(5),
+                          widget = wibox.container.margin,
                         },
-                        id = "background",
-                        fg = color["Teal200"],
-                        bg = color["Grey900"],
-                        widget = wibox.container.background
+                        layout = wibox.layout.align.horizontal,
                       },
-                      strategy = "exact",
-                      width = dpi(20),
-                      height = dpi(20),
+                      widget = wibox.container.background,
+                      bg = color,
+                      fg = beautiful.colorscheme.bg,
+                      shape = beautiful.shape[8],
+                    },
+                    { -- Main body
+                      { -- Image
+                        {
+                          {
+                            notification = n,
+                            image = n.icon,
+                            valign = 'center',
+                            halign = 'center',
+                            upscale = true,
+                            resize_strategy = 'scale',
+                            widget = naughty.widget.icon,
+                          },
+                          widget = wibox.container.background,
+                          shape = beautiful.shape[10],
+                        },
+                        widget = wibox.container.constraint,
+                        strategy = 'exact',
+                        height = dpi(128),
+                        width = dpi(128),
+                      },
+                      {
+                        {
+                          notification = n,
+                          widget = naughty.widget.message,
+                          font = beautiful.user_config.font .. ' bold 10',
+                          halign = 'left',
+                          valign = 'center',
+                        },
+                        widget = wibox.container.constraint,
+                        strategy = 'exact',
+                        height = dpi(128),
+                      },
+                      spacing = dpi(15),
+                      layout = wibox.layout.fixed.horizontal,
+                    },
+                    { -- Spacer
+                      {
+                        widget = wibox.container.background,
+                        bg = beautiful.colorscheme.bg,
+                      },
                       widget = wibox.container.constraint,
-                      id = "const"
+                      strategy = 'exact',
+                      height = dpi(2),
                     },
-                    margins = dpi(10),
-                    widget = wibox.container.margin,
-                    id = "arc_margin"
+                    action_template,
+                    spacing = dpi(15),
+                    id = 'main_layout',
+                    layout = wibox.layout.fixed.vertical,
                   },
-                  layout = wibox.layout.fixed.horizontal,
-                  id = "arc_app_layout_2"
+                  widget = wibox.container.margin,
+                  margins = dpi(15),
                 },
-                id = "arc_app_layout",
-                layout = wibox.layout.align.horizontal
+                bg = beautiful.colorscheme.bg,
+                border_color = beautiful.colorscheme.border_color,
+                border_width = dpi(2),
+                shape = beautiful.shape[8],
+                widget = wibox.container.background,
               },
-              id = "arc_app_bg",
-              border_color = color["Grey800"],
-              border_width = dpi(2),
-              widget = wibox.container.background
+              widget = wibox.container.constraint,
+              strategy = 'exact',
+              width = dpi(600),
             },
-            {
-              {
-                {
-                  {
-                    {
-                      image = n.icon,
-                      resize = true,
-                      widget = wibox.widget.imagebox,
-                      clip_shape = function(cr, width, height)
-                        gears.shape.rounded_rect(cr, width, height, 10)
-                      end
-                    },
-                    width = naughty.config.defaults.icon_size,
-                    height = naughty.config.defaults.icon_size,
-                    strategy = "exact",
-                    widget = wibox.container.constraint
-                  },
-                  halign = "center",
-                  valign = "top",
-                  widget = wibox.container.place
-                },
-                left = dpi(20),
-                bottom = dpi(15),
-                top = dpi(15),
-                right = dpi(10),
-                widget = wibox.container.margin
-              },
-              {
-                {
-                  {
-                    widget = naughty.widget.title,
-                    align = "left"
-                  },
-                  {
-                    widget = naughty.widget.message,
-                    align = "left"
-                  },
-                  {
-                    actions_template,
-                    widget = wibox.container.place
-                  },
-                  layout = wibox.layout.fixed.vertical
-                },
-                left = dpi(10),
-                bottom = dpi(10),
-                top = dpi(10),
-                right = dpi(20),
-                widget = wibox.container.margin
-              },
-              layout = wibox.layout.fixed.horizontal
-            },
-            id = "widget_layout",
-            layout = wibox.layout.fixed.vertical
-          },
-          id = "min_size",
-          strategy = "min",
-          width = dpi(100),
-          widget = wibox.container.constraint
-        },
-        id = "max_size",
-        strategy = "max",
-        width = Theme.notification_max_width or dpi(500),
-        widget = wibox.container.constraint
-      },
-      id = "background",
-      bg = color["Grey900"],
-      border_color = color["Grey800"],
-      border_width = dpi(4),
-      shape = function(cr, width, height)
-        gears.shape.rounded_rect(cr, width, height, 4)
-      end,
-      widget = wibox.container.background
-    }
+          }
 
-    local close = w_template.max_size.min_size.widget_layout.arc_app_bg.arc_app_layout.arc_app_layout_2.arc_margin.const.background
-    local arc = close.arc_chart
-
-    local timeout = n.timeout
-    local remove_time = timeout
-
-    if timeout ~= 0 then
-      arc.value = 360
-      local arc_timer = gears.timer {
-        timeout = 0.1,
-        call_now = true,
-        autostart = true,
-        callback = function()
-          arc.value = (remove_time - 0) / (timeout - 0) * 360
-          remove_time = remove_time - 0.1
-        end
-      }
-
-      w_template:connect_signal(
-        "mouse::enter",
-        function()
-          -- Setting to 0 doesn't work
-          arc_timer:stop()
-          n.timeout = 99999
-        end
-      )
-
-      w_template:connect_signal(
-        "mouse::leave",
-        function()
-          arc_timer:start()
-          n.timeout = remove_time
-        end
-      )
-    end
-
-    Hover_signal(close, color["Grey900"], color["Teal200"])
-
-    close:connect_signal(
-      "button::press",
-      function()
-        n:destroy()
-      end
-    )
-
-    w_template:connect_signal(
-      "button::press",
-      function(c, d, e, key)
-        if key == 3 then
-          n:destroy()
-        end
-        -- TODO: Find out how to get the associated client
-        --[[ if key == 1 then
-          if n.clients then
-            n.clients[1]:activate {
-              switch_to_tag = true,
-              raise         = true
-            }
+          if #action_template._private.layout.children < 1 then
+            notification:get_widget().children[1].children[1].children[1].children[3] = nil
           end
-        end ]]
-      end
-    )
 
-    local box = naughty.layout.box {
-      notification = n,
-      timeout = 3,
-      type = "notification",
-      screen = awful.screen.focused(),
-      shape = function(cr, width, height)
-        gears.shape.rounded_rect(cr, width, height, 10)
-      end,
-      widget_template = w_template
-    }
+          local arc_bg = notification:get_widget().children[1].children[1].children[1].children[1].children[1].children[2].children[1].children[2].children[1].children[1]
+          local arc = arc_bg.children[1]
 
-    box.buttons = {}
-    n.buttons = {}
-  end
-)
+          local timeout = n.timeout
 
-naughty.connect_signal(
-  "destroyed",
-  function()
+          if timeout ~= 0 then
 
-  end
-)
+            local rubato_timer = rubato.timed {
+              duration = n.timeout,
+              pos = n.timeout,
+              easing = rubato.linear,
+              clamp_position = true,
+              subscribed = function(value)
+                arc.value = value
+              end,
+            }
 
--- Test notification
---[[naughty.notification {
-  app_name = "System Notification",
-  title    = "A notification 3",
-  message  = "This is very informative and overflowing",
-  icon     = "/home/crylia/.config/awesome/src/assets/userpfp/crylia.png",
-  urgency  = "normal",
-  timeout  = 1,
-  actions  = {
-    naughty.action {
-      name = "Accept",
-    },
-    naughty.action {
-      name = "Refuse",
-    },
-    naughty.action {
-      name = "Ignore",
-    },
-  }
-}--]]
+            rubato_timer.target = 0
 
-naughty.connect_signal(
-  "invoked",
-  function(_, action)
-    if action.program == "Spotify" then
-      if action.id == "skip-prev" then
-        awful.spawn("playerctl previous")
-      end
-      if action.id == "play-pause" then
-        awful.spawn("playerctl play-pause")
-      end
-      if action.id == "skip-next" then
-        awful.spawn("playerctl next")
-      end
-    end
-  end
-)
+            notification:get_widget():connect_signal('mouse::enter', function()
+              n.timeout = 99999
+              rubato_timer.pause = true
+            end)
+
+            notification:get_widget():connect_signal('mouse::leave', function()
+              n.timeout = rubato_timer.pos
+              rubato_timer.pause = false
+              rubato_timer.target = 0
+            end)
+          end
+
+          hover.bg_hover { widget = arc_bg }
+
+          arc_bg:connect_signal('button::press', function()
+            n:destroy()
+          end)
+
+          notification:get_widget():buttons { gtable.join(
+            abutton({}, 1, function()
+              for _, client in ipairs(capi.client.get()) do
+                if client.class:lower():match(n.app_name:lower()) then
+                  if not client:isvisible() and client.first_tag then
+                    client.first_tag:view_only()
+                  end
+                  client:emit_signal('request::activate')
+                  client:raise()
+                end
+              end
+            end),
+            abutton({}, 3, function()
+              n:destroy()
+            end)
+          ), }
+
+          local box = naughty.layout.box {
+            notification = n,
+            timeout = 5,
+            type = 'notification',
+            screen = capi.screen.primary,
+            widget_template = notification,
+          }
+          box.buttons = {}
+          n.buttons = {}
+        end
+      end)
+    end,
+  })
+end
+return instance

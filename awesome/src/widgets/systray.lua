@@ -3,46 +3,72 @@
 --------------------------------
 
 -- Awesome Libs
-local awful = require("awful")
-local color = require("src.theme.colors")
-local dpi = require("beautiful").xresources.apply_dpi
-local gears = require("gears")
-local wibox = require("wibox")
+local beautiful = require('beautiful')
+local dpi = require('beautiful').xresources.apply_dpi
+local wibox = require('wibox')
+local abutton = require('awful.button')
+local gfilesystem = require('gears.filesystem')
 
-require("src.core.signals")
+local icondir = gfilesystem.get_configuration_dir() .. 'src/assets/icons/systray/'
 
-return function(s)
-  local systray = wibox.widget {
-    {
-      {
-        wibox.widget.systray(),
-        widget = wibox.container.margin,
-        id = 'st'
-      },
-      strategy = "exact",
-      layout = wibox.container.constraint,
-      id = "container"
-    },
-    widget = wibox.container.background,
-    shape = function(cr, width, height)
-      gears.shape.rounded_rect(cr, width, height, 5)
+local instance = nil
+if not instance then
+  instance = setmetatable({}, {
+    __call = function()
+      local systray = wibox.widget {
+        {
+          {
+            {
+              widget = wibox.widget.imagebox,
+              resize = true,
+              halign = 'center',
+              valign = 'center',
+              image = icondir .. 'chevron-right.svg',
+            },
+            height = dpi(28),
+            width = dpi(28),
+            widget = wibox.container.constraint,
+            strategy = 'exact',
+          },
+          {
+            {
+              {
+                wibox.widget.systray(),
+                id = 'systray_margin',
+                margins = dpi(6),
+                widget = wibox.container.margin,
+              },
+              strategy = 'exact',
+              widget = wibox.container.constraint,
+            },
+            widget = wibox.container.place,
+          },
+          id = 'lay',
+          layout = wibox.layout.fixed.horizontal,
+        },
+        widget = wibox.container.background,
+        shape = beautiful.shape[6],
+        bg = beautiful.colorscheme.bg1,
+      }
+
+      systray:buttons {
+        abutton({}, 1, function()
+          local c = systray:get_children_by_id('lay')[1].children[2]
+          c.visible = not c.visible
+
+          if not c.visible then
+            systray:get_children_by_id('lay')[1].children[1].children[1].image = icondir .. 'chevron-left.svg'
+          else
+            systray:get_children_by_id('lay')[1].children[1].children[1].image = icondir .. 'chevron-right.svg'
+          end
+        end),
+      }
+
+      -- Set the icon size
+      systray:get_children_by_id('systray_margin')[1].widget:set_base_size(dpi(24))
+
+      return systray
     end,
-    bg = color["BlueGrey800"]
-  }
-  -- Signals
-  Hover_signal(systray.container, color["Red200"], color["Grey900"])
-
-  awesome.connect_signal("systray::update", function()
-    local num_entries = awesome.systray()
-
-    if num_entries == 0 then
-      systray.container.st:set_margins(0)
-    else
-      systray.container.st:set_margins(dpi(6))
-    end
-  end)
-
-  systray.container.st.widget:set_base_size(dpi(20))
-
-  return systray
+  })
 end
+return instance

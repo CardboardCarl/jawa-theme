@@ -1,14 +1,18 @@
 {
+  "Lua.diagnostics.disable": [
+    "undefined-field",
+    "undefined-doc-name",
+    "deprecated"
+  ],
   "Lua.diagnostics.globals": [
-    "user_vars",
-    "modkey",
-    "root",
     "awesome",
+    "mouse",
+    "mousegrabber",
     "client",
     "screen",
-    "mouse",
-    "double_click_timer",
-    "vim",
-    "lspSymbol"
+    "selection",
+    "tag",
+    "root",
+    "vim"
   ]
 }

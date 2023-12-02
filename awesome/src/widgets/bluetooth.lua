@@ -1,131 +1,93 @@
-----------------------------------
--- This is the bluetooth widget --
-----------------------------------
+local setmetatable = setmetatable
 
--- Awesome Libs
-local awful = require("awful")
-local color = require("src.theme.colors")
-local dpi = require("beautiful").xresources.apply_dpi
-local gears = require("gears")
-local naughty = require("naughty")
-local wibox = require("wibox")
-require("src.core.signals")
+-- Awesome libs
+local apopup = require('awful.popup')
+local beautiful = require('beautiful')
+local dpi = beautiful.xresources.apply_dpi
+local gcolor = require('gears.color')
+local gfilesystem = require('gears.filesystem')
+local gtimer = require('gears.timer')
+local wibox = require('wibox')
+
+-- Own libs
+local bt_module = require('src.modules.bluetooth')
+local hover = require('src.tools.hover')
+
+local capi = {
+  awesome = awesome,
+  mouse = mouse,
+}
 
 -- Icon directory path
-local icondir = awful.util.getdir("config") .. "src/assets/icons/bluetooth/"
+local icondir = gfilesystem.get_configuration_dir() .. 'src/assets/icons/bluetooth/'
 
 -- Returns the bluetooth widget
-return function()
-  local bluetooth_widget = wibox.widget {
-    {
+return setmetatable({}, {
+  __call = function(_, s)
+    -- Get the bluetooth module
+    local bt_widget = bt_module { screen = s }
+    -- Create the bluetooth widget
+    local bluetooth_widget = wibox.widget {
       {
         {
-          id = "icon",
-          image = gears.color.recolor_image(icondir .. "bluetooth-off.svg"),
-          widget = wibox.widget.imagebox,
-          resize = false
+          {
+            id = 'icon',
+            image = gcolor.recolor_image(icondir .. 'bluetooth-off.svg', beautiful.colorscheme.bg),
+            widget = wibox.widget.imagebox,
+            valign = 'center',
+            halign = 'center',
+            resize = false,
+          },
+          id = 'icon_layout',
+          widget = wibox.container.place,
         },
-        id = "icon_layout",
-        widget = wibox.container.place
+        id = 'icon_margin',
+        left = dpi(8),
+        right = dpi(8),
+        widget = wibox.container.margin,
       },
-      id = "icon_margin",
-      left = dpi(8),
-      right = dpi(8),
-      widget = wibox.container.margin
-    },
-    bg = color["Blue200"],
-    fg = color["Grey900"],
-    shape = function(cr, width, height)
-      gears.shape.rounded_rect(cr, width, height, 5)
-    end,
-    widget = wibox.container.background
-  }
+      bg = beautiful.colorscheme.bg_blue,
+      fg = beautiful.colorscheme.bg,
+      shape = beautiful.shape[6],
+      widget = wibox.container.background,
+    }
 
-  local bluetooth_tooltip = awful.tooltip {
-    objects = { bluetooth_widget },
-    text = "",
-    mode = "inside",
-    preferred_alignments = "middle",
-    margins = dpi(10)
-  }
+    hover.bg_hover { widget = bluetooth_widget }
 
-  local bluetooth_state = "off"
-  local connected_device = "nothing"
+    -- Create the awful.popup container for the module
+    local bluetooth_container = apopup {
+      widget = bt_widget,
+      ontop = true,
+      stretch = false,
+      visible = true,
+      screen = s,
+      border_color = beautiful.colorscheme.border_color,
+      border_width = dpi(2),
+      bg = beautiful.colorscheme.bg,
+    }
 
-  awful.widget.watch(
-    "rfkill list bluetooth",
-    5,
-    function(_, stdout)
-      local icon = icondir .. "bluetooth"
-      if stdout:match('Soft blocked: yes') or stdout:gsub("\n", "") == '' then
-        icon = icon .. "-off"
-        bluetooth_state = "off"
-        bluetooth_tooltip:set_text("Bluetooth is turned " .. bluetooth_state .. "\n")
+    gtimer.delayed_call(function()
+      bluetooth_container.visible = false
+    end)
+
+    -- When the status changes update the icon
+    bt_widget:connect_signal('bluetooth::status', function(status)
+      bluetooth_widget:get_children_by_id('icon')[1].image = gcolor.recolor_image(status._private.Adapter1.Powered and
+        icondir .. 'bluetooth-on.svg' or icondir .. 'bluetooth-off.svg', beautiful.colorscheme.bg)
+    end)
+
+    -- On left click toggle the bluetooth container else toggle the bluetooth on/off
+    bluetooth_widget:connect_signal('button::press', function(_, _, _, key)
+      if key == 1 then
+        local geo = capi.mouse.current_wibox:geometry()
+        bluetooth_container.x = capi.mouse.coords().x - (bluetooth_container:geometry().width / 2)
+        bluetooth_container.y = dpi(70)
+        bluetooth_container.visible = not bluetooth_container.visible
       else
-        icon = icon .. "-on"
-        bluetooth_state = "on"
-        awful.spawn.easy_async_with_shell(
-          './.config/awesome/src/scripts/bt.sh',
-          function(stdout2)
-            if stdout2 == nil or stdout2:gsub("\n", "") == "" then
-              bluetooth_tooltip:set_text("Bluetooth is turned " .. bluetooth_state .. "\n" .. "You are currently not connected")
-            else
-              connected_device = stdout2:gsub("%(", ""):gsub("%)", "")
-              bluetooth_tooltip:set_text("Bluetooth is turned " .. bluetooth_state .. "\n" .. "You are currently connected to:\n" .. connected_device)
-            end
-          end
-        )
+        capi.awesome.emit_signal('toggle_bluetooth')
       end
-      bluetooth_widget.icon_margin.icon_layout.icon:set_image(gears.color.recolor_image(icon .. ".svg", color["Grey900"]))
-    end,
-    bluetooth_widget
-  )
+    end)
 
-  -- Signals
-  Hover_signal(bluetooth_widget, color["Blue200"], color["Grey900"])
-
-  bluetooth_widget:connect_signal(
-    "button::press",
-    function()
-      awful.spawn.easy_async_with_shell(
-        "rfkill list bluetooth",
-        function(stdout)
-          if stdout:gsub("\n", "") ~= '' then
-            if bluetooth_state == "off" then
-              awful.spawn.easy_async_with_shell(
-                [[
-              rfkill unblock bluetooth
-              sleep 1
-              bluetoothctl power on
-            ]]   ,
-                function()
-                  naughty.notification {
-                    title = "System Notification",
-                    app_name = "Bluetooth",
-                    message = "Bluetooth activated"
-                  }
-                end
-              )
-            else
-              awful.spawn.easy_async_with_shell(
-                [[
-              bluetoothctl power off
-              rfkill block bluetooth
-            ]]   ,
-                function()
-                  naughty.notification {
-                    title = "System Notification",
-                    app_name = "Bluetooth",
-                    message = "Bluetooth deactivated"
-                  }
-                end
-              )
-            end
-          end
-        end
-      )
-    end
-  )
-
-  return bluetooth_widget
-end
+    return bluetooth_widget
+  end,
+})

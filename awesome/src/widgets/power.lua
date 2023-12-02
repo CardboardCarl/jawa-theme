@@ -1,63 +1,54 @@
---------------------------------
--- This is the power widget --
---------------------------------
+local setmetatable = setmetatable
 
 -- Awesome Libs
-local awful = require("awful")
-local color = require("src.theme.colors")
-local dpi = require("beautiful").xresources.apply_dpi
-local gears = require("gears")
-local wibox = require("wibox")
-require("src.core.signals")
+local abutton = require('awful.button')
+local beautiful = require('beautiful')
+local dpi = beautiful.xresources.apply_dpi
+local gcolor = require('gears.color')
+local gfilesystem = require('gears.filesystem')
+local gtable = require('gears.table')
+local wibox = require('wibox')
+
+-- Local libs
+local hover = require('src.tools.hover')
+local powermenu = require('src.modules.powermenu')
 
 -- Icon directory path
-local icondir = awful.util.getdir("config") .. "src/assets/icons/power/"
+local icondir = gfilesystem.get_configuration_dir() .. 'src/assets/icons/power/'
 
-return function()
+local instance = nil
+if not instance then
+  instance = setmetatable({}, { __call = function()
 
-  local power_widget = wibox.widget {
-    {
+    local power_widget = wibox.widget {
       {
         {
-          {
-            {
-              id = "icon",
-              image = gears.color.recolor_image(icondir .. "power.svg", color["Grey900"]),
-              widget = wibox.widget.imagebox,
-              resize = false
-            },
-            id = "icon_layout",
-            widget = wibox.container.place
-          },
-          id = "icon_margin",
-          top = dpi(2),
-          widget = wibox.container.margin
+          image = gcolor.recolor_image(icondir .. 'power.svg', beautiful.colorscheme.bg),
+          widget = wibox.widget.imagebox,
+          valign = 'center',
+          halign = 'center',
+          resize = false,
         },
-        id = "power_layout",
-        layout = wibox.layout.fixed.horizontal
+        left = dpi(8),
+        right = dpi(8),
+        widget = wibox.container.margin,
       },
-      id = "container",
-      left = dpi(8),
-      right = dpi(8),
-      widget = wibox.container.margin
-    },
-    bg = color["Red200"],
-    fg = color["Grey800"],
-    shape = function(cr, width, height)
-      gears.shape.rounded_rect(cr, width, height, 5)
-    end,
-    widget = wibox.container.background
-  }
+      bg = beautiful.colorscheme.bg_red,
+      fg = beautiful.colorscheme.bg,
+      shape = beautiful.shape[6],
+      widget = wibox.container.background,
+    }
 
-  -- Signals
-  Hover_signal(power_widget, color["Red200"], color["Grey900"])
+    -- Signals
+    hover.bg_hover { widget = power_widget }
 
-  power_widget:connect_signal(
-    "button::release",
-    function()
-      awesome.emit_signal("module::powermenu:show")
-    end
-  )
+    power_widget:buttons { gtable.join(
+      abutton({}, 1, function()
+        powermenu:toggle()
+      end)
+    ), }
 
-  return power_widget
+    return power_widget
+  end, })
 end
+return instance

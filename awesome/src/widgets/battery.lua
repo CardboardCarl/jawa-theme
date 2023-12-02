@@ -1,204 +1,228 @@
---------------------------------
--- This is the battery widget --
---------------------------------
+local ipairs = ipairs
+local mfloor = math.floor
+local setmetatable = setmetatable
+
 -- Awesome Libs
-local awful = require("awful")
-local color = require("src.theme.colors")
-local dpi = require("beautiful").xresources.apply_dpi
-local gears = require("gears")
-local naughty = require("naughty")
-local watch = awful.widget.watch
-local wibox = require("wibox")
-require("src.core.signals")
+local aspawn = require('awful.spawn')
+local atooltip = require('awful.tooltip')
+local beautiful = require('beautiful')
+local dpi = beautiful.xresources.apply_dpi
+local gcolor = require('gears.color')
+local gfilesystem = require('gears.filesystem')
+local gsurface = require('gears.surface')
+local gtimer = require('gears.timer')
+local lgi = require('lgi')
+local nnotification = require('naughty.notification')
+local upower_glib = lgi.require('UPowerGlib')
+local wibox = require('wibox')
+
+-- Local libs
+local hover = require('src.tools.hover')
+
+local capi = {
+  awesome = awesome,
+}
 
 -- Icon directory path
-local icondir = awful.util.getdir("config") .. "src/assets/icons/battery/"
+local icondir = gfilesystem.get_configuration_dir() .. 'src/assets/icons/battery/'
 
--- Returns the battery widget
-return function()
-  local battery_widget = wibox.widget {
-    {
-      {
+local instance = nil
+if not instance then
+  instance = setmetatable({}, {
+    __call = function(_, battery_kind)
+      local battery_widget = wibox.widget {
         {
           {
             {
-              id = "icon",
-              image = gears.color.recolor_image(icondir .. "battery-unknown.svg", "#212121"),
-              widget = wibox.widget.imagebox,
-              resize = false
+              {
+                {
+                  id = 'icon',
+                  image = gcolor.recolor_image(icondir .. 'battery-unknown.svg', beautiful.colorscheme.fg_dark),
+                  widget = wibox.widget.imagebox,
+                  valign = 'center',
+                  halign = 'center',
+                  resize = false,
+                },
+                id = 'icon_layout',
+                widget = wibox.container.place,
+              },
+              id = 'icon_margin',
+              top = dpi(2),
+              widget = wibox.container.margin,
             },
-            id = "icon_layout",
-            widget = wibox.container.place
+            spacing = dpi(10),
+            {
+              visible = false,
+              align = 'center',
+              valign = 'center',
+              id = 'label',
+              widget = wibox.widget.textbox,
+            },
+            id = 'battery_layout',
+            layout = wibox.layout.fixed.horizontal,
           },
-          id = "icon_margin",
-          top = dpi(2),
-          widget = wibox.container.margin
+          id = 'container',
+          left = dpi(8),
+          right = dpi(8),
+          widget = wibox.container.margin,
         },
-        spacing = dpi(10),
-        {
-          visible = false,
-          align = 'center',
-          valign = 'center',
-          id = "label",
-          widget = wibox.widget.textbox
-        },
-        id = "battery_layout",
-        layout = wibox.layout.fixed.horizontal
-      },
-      id = "container",
-      left = dpi(8),
-      right = dpi(8),
-      widget = wibox.container.margin
-    },
-    bg = color["Purple200"],
-    fg = color["Grey900"],
-    shape = function(cr, width, height)
-      gears.shape.rounded_rect(cr, width, height, 5)
-    end,
-    widget = wibox.container.background
-  }
+        bg = beautiful.colorscheme.bg_purple,
+        fg = beautiful.colorscheme.fg_dark,
+        shape = beautiful.shape[6],
+        widget = wibox.container.background,
+      }
 
-  local battery_tooltip = awful.tooltip {
-    objects = { battery_widget },
-    text = "",
-    mode = "inside",
-    preferred_alignments = "middle",
-    margins = dpi(10)
-  }
+      hover.bg_hover { widget = battery_widget }
 
-  local get_battery_info = function()
-    awful.spawn.easy_async_with_shell(
-      [[ upower -i $(upower -e | grep BAT) | grep "time to " ]],
-      function(stdout)
-        if stdout == nil or stdout == '' then
-          battery_tooltip:set_text('No Battery Found')
-          return
+      battery_widget:connect_signal('button::press', function()
+        aspawn(beautiful.user_config.energy_manager)
+      end)
+
+      local function get_device_path()
+        local paths = upower_glib.Client():get_devices()
+        local path_table = {}
+        for _, path in ipairs(paths) do
+          table.insert(path_table, path:get_object_path())
         end
-        local rem_time = ""
-        if stdout:match("hour") then
-          rem_time = "Hours"
-        else
-          rem_time = "Minutes"
-        end
-        local bat_time = stdout:match("%d+,%d") or stdout:match("%d+.%d") or ""
-        if stdout:match("empty") then
-          battery_tooltip:set_text("Remaining battery time: " .. bat_time .. " " .. rem_time)
-        elseif stdout:match("time to full") then
-          battery_tooltip:set_text("Battery fully charged in: " .. bat_time .. " " .. rem_time)
-        end
+        return path_table
       end
-    )
-  end
-  get_battery_info()
 
-  local last_battery_check = os.time()
-  local notify_critical_battery = true
+      local function get_device_from_path(path)
+        local devices = upower_glib.Client():get_devices()
 
-  local battery_warning = function()
-    naughty.notification {
-      icon = gears.color.recolor_image(icondir .. "battery-alert.svg", color["White"]),
-      app_name = "System notification",
-      title = "Battery is low",
-      message = "Battery is almost empty",
-      urgency = "critical"
-    }
-  end
+        for _, device in ipairs(devices) do
+          if device:get_object_path() == path then
+            return device
+          end
+        end
+        return nil
+      end
 
-  local update_battery = function(status)
-    awful.spawn.easy_async_with_shell(
-      [[sh -c "upower -i $(upower -e | grep BAT) | grep percentage | awk '{print \$2}' |tr -d '\n%'"]],
-      function(stdout)
-        local battery_percentage = tonumber(stdout)
+      local tooltip = atooltip {
+        objects = { battery_widget },
+        mode = 'inside',
+        preferred_alignments = 'middle',
+        margins = dpi(10),
+      }
+
+      ---Sets the battery information for the widget
+      ---@param device UPowerGlib.Device battery
+      local function set_battery(device)
+        local battery_percentage = mfloor(device.percentage + 0.5)
+        local battery_status = upower_glib.DeviceState[device.state]:lower()
+        local battery_temp = device.temperature
+
+        local battery_time = 1
+
+        if device.time_to_empty ~= 0 then
+          battery_time = device.time_to_empty
+        else
+          battery_time = device.time_to_full
+        end
+
+        local battery_string = mfloor(battery_time / 3600) .. 'h, ' .. mfloor((battery_time / 60) % 60) .. 'm'
+
+        if battery_temp == 0.0 then
+          battery_temp = 'NaN'
+        else
+          battery_temp = mfloor(battery_temp + 0.5) .. '°C'
+        end
 
         if not battery_percentage then
           return
         end
 
-        battery_widget.container.battery_layout.spacing = dpi(5)
-        battery_widget.container.battery_layout.label.visible = true
-        battery_widget.container.battery_layout.label:set_text(battery_percentage .. '%')
+        battery_widget:get_children_by_id('battery_layout')[1].spacing = dpi(5)
+        battery_widget:get_children_by_id('label')[1].visible = true
+        battery_widget:get_children_by_id('label')[1].text = battery_percentage .. '%'
+
+        tooltip.markup = "<span foreground='" .. beautiful.colorscheme.bg_teal .. "'>Battery Status:</span> <span foreground='" .. beautiful.colorscheme.fg .. "'>"
+            .. battery_status .. "</span>\n<span foreground='" .. beautiful.colorscheme.bg_teal .. "'>Remaining time:</span> <span foreground='" .. beautiful.colorscheme.fg .. "'>"
+            .. battery_string .. "</span>\n<span foreground='" .. beautiful.colorscheme.bg_teal .. "'>Temperature:</span> <span foreground='" .. beautiful.colorscheme.fg .. "'>"
+            .. battery_temp .. '</span>'
 
         local icon = 'battery'
 
-        if status == 'fully-charged' or status == 'charging' and battery_percentage == 100 then
-          icon = icon .. '-' .. 'charging'
-          battery_widget.container.battery_layout.icon_margin.icon_layout.icon:set_image(gears.surface.load_uncached(
-            gears.color.recolor_image(icondir .. icon .. '.svg', "#212121")))
+        if battery_status == 'fully-charged' or battery_status == 'charging' and battery_percentage == 100 then
+          icon = icon .. '-' .. 'charging.svg'
+          nnotification {
+            title = 'Battery notification',
+            message = 'Battery is fully charged',
+            icon = icondir .. icon,
+            timeout = 5,
+          }
+          battery_widget:get_children_by_id('icon')[1].image = gsurface.load_uncached(gcolor.recolor_image(icondir
+            .. icon, beautiful.colorscheme.fg_dark))
           return
-        end
-
-        if battery_percentage > 0 and battery_percentage < 10 and status == 'discharging' then
-          icon = icon .. '-' .. 'alert'
-          if (os.difftime(os.time(), last_battery_check) > 300 or notify_critical_battery) then
-            last_battery_check = os.time()
-            notify_critical_battery = false
-            battery_warning()
-          end
-          battery_widget.container.battery_layout.icon_margin.icon_layout.icon:set_image(gears.surface.load_uncached(
-            gears.color.recolor_image(icondir .. icon .. '.svg', "#212121")))
+        elseif battery_percentage > 0 and battery_percentage < 10 and battery_status == 'discharging' then
+          icon = icon .. '-' .. 'alert.svg'
+          nnotification {
+            title = 'Battery warning',
+            message = 'Battery is running low!\n' .. battery_percentage .. '% left',
+            urgency = 'critical',
+            icon = icondir .. icon,
+            timeout = 60,
+          }
+          battery_widget:get_children_by_id('icon')[1].image = gsurface.load_uncached(gcolor.recolor_image(icondir
+            .. icon, beautiful.colorscheme.fg_dark))
           return
         end
 
         if battery_percentage > 0 and battery_percentage < 10 then
-          icon = icon .. '-' .. status .. '-' .. 'outline'
+          icon = icon .. '-' .. battery_status .. '-' .. 'outline'
         elseif battery_percentage >= 10 and battery_percentage < 20 then
-          icon = icon .. '-' .. status .. '-' .. '10'
+          icon = icon .. '-' .. battery_status .. '-' .. '10'
         elseif battery_percentage >= 20 and battery_percentage < 30 then
-          icon = icon .. '-' .. status .. '-' .. '20'
+          icon = icon .. '-' .. battery_status .. '-' .. '20'
         elseif battery_percentage >= 30 and battery_percentage < 40 then
-          icon = icon .. '-' .. status .. '-' .. '30'
+          icon = icon .. '-' .. battery_status .. '-' .. '30'
         elseif battery_percentage >= 40 and battery_percentage < 50 then
-          icon = icon .. '-' .. status .. '-' .. '40'
+          icon = icon .. '-' .. battery_status .. '-' .. '40'
         elseif battery_percentage >= 50 and battery_percentage < 60 then
-          icon = icon .. '-' .. status .. '-' .. '50'
+          icon = icon .. '-' .. battery_status .. '-' .. '50'
         elseif battery_percentage >= 60 and battery_percentage < 70 then
-          icon = icon .. '-' .. status .. '-' .. '60'
+          icon = icon .. '-' .. battery_status .. '-' .. '60'
         elseif battery_percentage >= 70 and battery_percentage < 80 then
-          icon = icon .. '-' .. status .. '-' .. '70'
+          icon = icon .. '-' .. battery_status .. '-' .. '70'
         elseif battery_percentage >= 80 and battery_percentage < 90 then
-          icon = icon .. '-' .. status .. '-' .. '80'
+          icon = icon .. '-' .. battery_status .. '-' .. '80'
         elseif battery_percentage >= 90 and battery_percentage < 100 then
-          icon = icon .. '-' .. status .. '-' .. '90'
+          icon = icon .. '-' .. battery_status .. '-' .. '90'
         end
 
-        battery_widget.container.battery_layout.icon_margin.icon_layout.icon:set_image(gears.surface.load_uncached(
-          gears.color.recolor_image(icondir .. icon .. '.svg', "#212121")))
-
+        battery_widget:get_children_by_id('icon')[1].image = gsurface.load_uncached(gcolor.recolor_image(icondir ..
+          icon .. '.svg', beautiful.colorscheme.fg_dark))
+        capi.awesome.emit_signal('update::battery_widget', battery_percentage, icondir .. icon .. '.svg')
       end
-    )
-  end
 
-  Hover_signal(battery_widget, color["Purple200"], color["Grey900"])
+      local function attach_to_device(path)
+        local device_path = beautiful.user_config.battery_path or path or ''
 
-  battery_widget:connect_signal(
-    'button::press',
-    function()
-      awful.spawn("xfce4-power-manager-settings")
-    end
-  )
+        battery_widget.device = get_device_from_path(device_path) or upower_glib.Client():get_display_device()
 
-  battery_widget:connect_signal(
-    "mouse::enter",
-    function()
-      get_battery_info()
-    end
-  )
+        battery_widget.device.on_notify = function(device)
+          battery_widget:emit_signal('upower::update', device)
+        end
 
-  watch(
-    [[sh -c "upower -i $(upower -e | grep BAT) | grep state | awk '{print \$2}' | tr -d '\n'"]],
-    5,
-    function(widget, stdout)
-      local status = stdout:gsub('%\n', '')
-      if status == nil or status == '' then
-        battery_widget.container.battery_layout.spacing = dpi(0)
-        battery_widget.container.battery_layout.label.visible = false
-        battery_tooltip:set_text('No battery found')
-        battery_widget.container.battery_layout.icon_margin.icon_layout.icon:set_image(gears.surface.load_uncached(
-          gears.color.recolor_image(icondir .. 'battery-off' .. '.svg', "#212121")))
+        if upower_glib.DeviceKind[battery_widget.device.kind] == battery_kind then
+          set_battery(battery_widget.device)
+        end
+
+        gtimer.delayed_call(battery_widget.emit_signal, battery_widget, 'upower::update', battery_widget.device)
       end
-      update_battery(status)
-    end
-  )
 
-  return battery_widget
+      for _, device in ipairs(get_device_path()) do
+        attach_to_device(device)
+      end
+
+      battery_widget:connect_signal('upower::update', function(_, device)
+        if upower_glib.DeviceKind[battery_widget.device.kind] == battery_kind then
+          set_battery(device)
+        end
+      end)
+
+      return battery_widget
+    end,
+  })
 end
+return instance

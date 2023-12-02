@@ -1,15 +1,15 @@
-----------------------------------
--- This is the layoutbox widget --
-----------------------------------
+local setmetatable = setmetatable
 
 -- Awesome Libs
-local awful = require("awful")
-local color = require("src.theme.colors")
-local dpi = require("beautiful").xresources.apply_dpi
-local gears = require("gears")
-local wibox = require("wibox")
-require("src.core.signals")
+local abutton = require('awful.button')
+local alayout = require('awful.layout')
+local awidget = require('awful.widget')
+local beautiful = require('beautiful')
+local dpi = beautiful.xresources.apply_dpi
+local gtable = require('gears.table')
+local wibox = require('wibox')
 
+<<<<<<< HEAD
 -- Returns the layoutbox widget
 return function(s)
   local layout = wibox.widget {
@@ -32,16 +32,59 @@ return function(s)
     widget = wibox.container.background,
     screen = s
   }
+=======
+-- Local libs
+local hover = require('src.tools.hover')
 
-  -- Signals
-  Hover_signal(layout, color["LightBlue200"], color["Grey900"])
+return setmetatable({}, {
+  __call = function(_, screen)
+    local layout = wibox.widget {
+      {
+        {
+          {
+            awidget.layoutbox(),
+            widget = wibox.container.place,
+          },
+          left = dpi(5),
+          right = dpi(5),
+          widget = wibox.container.margin,
+        },
+        widget = wibox.container.constraint,
+        strategy = 'exact',
+        width = dpi(40),
+      },
+      bg = beautiful.colorscheme.bg_blue,
+      shape = beautiful.shape[6],
+      widget = wibox.container.background,
+    }
+>>>>>>> develop
 
+    hover.bg_hover { widget = layout }
+
+<<<<<<< HEAD
   layout:connect_signal(
     "button::press",
     function()
       awful.layout.inc(-1, s)
     end
   )
+=======
+    layout:buttons(gtable.join(
+      abutton({}, 1, function()
+        alayout.inc(1, screen)
+      end),
+      abutton({}, 3, function()
+        alayout.inc(-1, screen)
+      end),
+      abutton({}, 4, function()
+        alayout.inc(1, screen)
+      end),
+      abutton({}, 5, function()
+        alayout.inc(-1, screen)
+      end)
+    ))
+>>>>>>> develop
 
-  return layout
-end
+    return layout
+  end,
+})

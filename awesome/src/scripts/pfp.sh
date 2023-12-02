@@ -5,7 +5,7 @@ case $1 in
   "userPfp")
     iconPath="/var/lib/AccountsService/icons/$USER"
 
-    userIconPath="$HOME/.config/awesome/src/assets/userpfp/"
+    userIconPath="../assets/userpfp/"
 
     if [[ -f "$userIconPath" ]];
     then
@@ -23,8 +23,8 @@ case $1 in
     else
         if [[ -f "$iconPath" ]];
         then
-            cp "$iconPath" "$userIconPath$USER.png"
-            printf "$userIconPath$USER.png"
+            cp "$iconPath" $userIconPath"userpfp.png"
+            printf $userIconPath"userpfp.png"
             exit;
         fi
     fi

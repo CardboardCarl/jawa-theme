@@ -1,64 +1,60 @@
-------------------------------
--- This is the clock widget --
-------------------------------
+local setmetatable = setmetatable
 
 -- Awesome Libs
-local awful = require("awful")
-local color = require("src.theme.colors")
-local dpi = require("beautiful").xresources.apply_dpi
-local gears = require("gears")
-local wibox = require("wibox")
-require("src.core.signals")
+local beautiful = require('beautiful')
+local dpi = beautiful.xresources.apply_dpi
+local gcolor = require('gears.color')
+local gfilesystem = require('gears.filesystem')
+local wibox = require('wibox')
+
+-- Local libs
+local hover = require('src.tools.hover')
 
 -- Icon directory path
-local icondir = awful.util.getdir("config") .. "src/assets/icons/clock/"
+local icondir = gfilesystem.get_configuration_dir() .. 'src/assets/icons/clock/'
 
 -- Returns the clock widget
-return function()
-
-  local clock_widget = wibox.widget {
-    {
+local instance = nil
+if not instance then
+  instance = setmetatable({}, { __call = function()
+    local clock_widget = wibox.widget {
       {
         {
           {
             {
-              id = "icon",
-              image = gears.color.recolor_image(icondir .. "clock.svg", color["Grey900"]),
+              image = gcolor.recolor_image(icondir .. 'clock.svg', beautiful.colorscheme.bg),
               widget = wibox.widget.imagebox,
-              resize = false
+              valign = 'center',
+              halign = 'center',
+              resize = true,
             },
-            id = "icon_layout",
-            widget = wibox.container.place
+            widget = wibox.container.constraint,
+            width = dpi(25),
+            height = dpi(25),
+            strategy = 'exact',
           },
-          id = "icon_margin",
-          top = dpi(2),
-          widget = wibox.container.margin
+          {
+            halign = 'center',
+            valign = 'center',
+            format = '%H:%M',
+            widget = wibox.widget.textclock,
+          },
+          spacing = dpi(10),
+          layout = wibox.layout.fixed.horizontal,
         },
-        spacing = dpi(10),
-        {
-          id = "label",
-          align = "center",
-          valign = "center",
-          format = "%H:%M",
-          widget = wibox.widget.textclock
-        },
-        id = "clock_layout",
-        layout = wibox.layout.fixed.horizontal
+        left = dpi(8),
+        right = dpi(8),
+        widget = wibox.container.margin,
       },
-      id = "container",
-      left = dpi(8),
-      right = dpi(8),
-      widget = wibox.container.margin
-    },
-    bg = color["Orange200"],
-    fg = color["Grey900"],
-    shape = function(cr, width, height)
-      gears.shape.rounded_rect(cr, width, height, 5)
-    end,
-    widget = wibox.container.background
-  }
+      bg = beautiful.colorscheme.bg_yellow,
+      fg = beautiful.colorscheme.bg,
+      shape = beautiful.shape[6],
+      widget = wibox.container.background,
+    }
 
-  Hover_signal(clock_widget, color["Orange200"], color["Grey900"])
+    hover.bg_hover { widget = clock_widget }
 
-  return clock_widget
+    return clock_widget
+  end, })
 end
+return instance

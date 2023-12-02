@@ -1,226 +1,211 @@
----------------------------------
--- This is the CPU Info widget --
----------------------------------
+local mfloor = math.floor
+local setmetatable = setmetatable
 
 -- Awesome Libs
-local awful = require("awful")
-local color = require("src.theme.colors")
-local dpi = require("beautiful").xresources.apply_dpi
-local gears = require("gears")
-local watch = awful.widget.watch
-local wibox = require("wibox")
-require("src.core.signals")
+local base = require('wibox.widget.base')
+local beautiful = require('beautiful')
+local dpi = beautiful.xresources.apply_dpi
+local gcolor = require('gears.color')
+local gfilesystem = require('gears.filesystem')
+local wibox = require('wibox')
 
-local icon_dir = awful.util.getdir("config") .. "src/assets/icons/cpu/"
+-- Third Party Libs
+local color = require('src.lib.color')
+local hover = require('src.tools.hover')
+local rubato = require('src.lib.rubato')
 
---TODO: Add tooltip with more CPU and per core information
-return function(widget, clock_mode)
+local icon_dir = gfilesystem.get_configuration_dir() .. 'src/assets/icons/cpu/'
 
-  local cpu_usage_widget = wibox.widget {
-    {
-      {
+local instance = nil
+if not instance then
+  instance = setmetatable({}, { __call = function(_, widget)
+    if widget == 'temp' then
+      local cpu_temp_helper = require('src.tools.helpers.cpu_temp')
+
+      local w = base.make_widget_from_value(wibox.widget {
         {
           {
             {
-              id = "icon",
-              widget = wibox.widget.imagebox,
-              image = gears.color.recolor_image(icon_dir .. "cpu.svg", color["Grey900"]),
-              resize = false
+              {
+                {
+                  id = 'icon_role',
+                  widget = wibox.widget.imagebox,
+                  valign = 'center',
+                  halign = 'center',
+                  image = gcolor.recolor_image(icon_dir .. 'thermometer.svg', beautiful.colorscheme.bg),
+                  resize = true,
+                },
+                widget = wibox.container.constraint,
+                width = dpi(25),
+                height = dpi(25),
+                strategy = 'exact',
+              },
+              {
+                id = 'text_role',
+                halign = 'center',
+                valign = 'center',
+                widget = wibox.widget.textbox,
+              },
+              spacing = dpi(5),
+              layout = wibox.layout.fixed.horizontal,
             },
-            id = "icon_layout",
-            widget = wibox.container.place
+            widget = wibox.container.place,
           },
-          top = dpi(2),
+          left = dpi(5),
+          right = dpi(5),
           widget = wibox.container.margin,
-          id = "icon_margin"
         },
-        spacing = dpi(10),
-        {
-          id = "label",
-          align = "center",
-          valign = "center",
-          widget = wibox.widget.textbox
-        },
-        id = "cpu_layout",
-        layout = wibox.layout.fixed.horizontal
-      },
-      id = "container",
-      left = dpi(8),
-      right = dpi(8),
-      widget = wibox.container.margin
-    },
-    bg = color["Blue200"],
-    fg = color["Grey900"],
-    shape = function(cr, width, height)
-      gears.shape.rounded_rect(cr, width, height, 5)
-    end,
-    widget = wibox.container.background
-  }
+        bg = beautiful.colorscheme.bg_green,
+        fg = beautiful.colorscheme.bg,
+        shape = beautiful.shape[6],
+        widget = wibox.container.background,
+      })
 
-  local cpu_temp = wibox.widget {
-    {
-      {
-        {
-          {
-            {
-              id = "icon",
-              widget = wibox.widget.imagebox,
-              resize = false
-            },
-            id = "icon_layout",
-            widget = wibox.container.place
-          },
-          top = dpi(2),
-          widget = wibox.container.margin,
-          id = "icon_margin"
-        },
-        spacing = dpi(10),
-        {
-          id = "label",
-          align = "center",
-          valign = "center",
-          widget = wibox.widget.textbox
-        },
-        id = "cpu_layout",
-        layout = wibox.layout.fixed.horizontal
-      },
-      id = "container",
-      left = dpi(8),
-      right = dpi(8),
-      widget = wibox.container.margin
-    },
-    bg = color["Green200"],
-    fg = color["Grey900"],
-    shape = function(cr, width, height)
-      gears.shape.rounded_rect(cr, width, height, 5)
-    end,
-    widget = wibox.container.background
-  }
+      local r = rubato.timed { duration = 2.5 }
+      local g = rubato.timed { duration = 2.5 }
+      local b = rubato.timed { duration = 2.5 }
 
-  local cpu_clock = wibox.widget {
-    {
-      {
-        {
-          {
-            {
-              id = "icon",
-              widget = wibox.widget.imagebox,
-              image = icon_dir .. "cpu.svg",
-              resize = false
-            },
-            id = "icon_layout",
-            widget = wibox.container.place
-          },
-          top = dpi(2),
-          widget = wibox.container.margin,
-          id = "icon_margin"
-        },
-        spacing = dpi(10),
-        {
-          id = "label",
-          align = "center",
-          valign = "center",
-          widget = wibox.widget.textbox
-        },
-        id = "cpu_layout",
-        layout = wibox.layout.fixed.horizontal
-      },
-      id = "container",
-      left = dpi(8),
-      right = dpi(8),
-      widget = wibox.container.margin
-    },
-    bg = color["Purple200"],
-    fg = color["Grey900"],
-    shape = function(cr, width, height)
-      gears.shape.rounded_rect(cr, width, height, 5)
-    end,
-    widget = wibox.container.background
-  }
+      r.pos, g.pos, b.pos = color.utils.hex_to_rgba(beautiful.colorscheme.bg_green)
 
-  local total_prev = 0
-  local idle_prev = 0
-
-  watch(
-    [[ cat "/proc/stat" | grep '^cpu ' ]],
-    3,
-    function(_, stdout)
-      local user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice =
-      stdout:match("(%d+)%s(%d+)%s(%d+)%s(%d+)%s(%d+)%s(%d+)%s(%d+)%s(%d+)%s(%d+)%s(%d+)%s")
-
-      local total = user + nice + system + idle + iowait + irq + softirq + steal
-
-      local diff_idle = idle - idle_prev
-      local diff_total = total - total_prev
-      local diff_usage = (1000 * (diff_total - diff_idle) / diff_total + 5) / 10
-
-      cpu_usage_widget.container.cpu_layout.label.text = tostring(math.floor(diff_usage)) .. "%"
-
-      total_prev = total
-      idle_prev = idle
-      collectgarbage("collect")
-    end
-  )
-
-  watch(
-    [[ bash -c "sensors | grep 'Package id 0:' | awk '{print $4}'" ]],
-    3,
-    function(_, stdout)
-
-      local temp_icon
-      local temp_color
-
-      local temp_num = tonumber(stdout:match("%d+"))
-      if temp_num < 50 then
-        temp_color = color["Green200"]
-        temp_icon = icon_dir .. "thermometer-low.svg"
-      elseif temp_num >= 50 and temp_num < 80 then
-        temp_color = color["Orange200"]
-        temp_icon = icon_dir .. "thermometer.svg"
-      elseif temp_num >= 80 then
-        temp_color = color["Red200"]
-        temp_icon = icon_dir .. "thermometer-high.svg"
-      end
-      Hover_signal(cpu_temp, temp_color, color["Grey900"])
-      cpu_temp.container.cpu_layout.icon_margin.icon_layout.icon:set_image(temp_icon)
-      cpu_temp:set_bg(temp_color)
-      cpu_temp.container.cpu_layout.label.text = math.floor(temp_num) .. "°C"
-    end
-  )
-
-  watch(
-    [[ bash -c "cat /proc/cpuinfo | grep "MHz" | awk '{print int($4)}'" ]],
-    3,
-    function(_, stdout)
-      local cpu_freq = {}
-
-      for value in stdout:gmatch("%d+") do
-        table.insert(cpu_freq, value)
+      -- Subscribable function to have rubato set the bg/fg color
+      local function update_bg()
+        w:set_bg('#' .. color.utils.rgba_to_hex { r.pos, g.pos, b.pos })
       end
 
-      local average = 0
+      r:subscribe(update_bg)
+      g:subscribe(update_bg)
+      b:subscribe(update_bg)
 
-      if clock_mode == "average" then
-        for i = 1, #cpu_freq do
-          average = average + cpu_freq[i]
+      -- Both functions to set a color, if called they take a new color
+      local function set_bg(newbg)
+        r.target, g.target, b.target = color.utils.hex_to_rgba(newbg)
+      end
+
+      cpu_temp_helper:connect_signal('update::cpu_temp', function(_, temp)
+        local temp_icon
+        local temp_color
+
+        if temp < 50 then
+          temp_color = beautiful.colorscheme.bg_green
+          temp_icon = icon_dir .. 'thermometer-low.svg'
+        elseif temp >= 50 and temp < 80 then
+          temp_color = beautiful.colorscheme.bg_yellow
+          temp_icon = icon_dir .. 'thermometer.svg'
+        elseif temp >= 80 then
+          temp_color = beautiful.colorscheme.bg_red
+          temp_icon = icon_dir .. 'thermometer-high.svg'
         end
-        average = math.floor(average / #cpu_freq)
-        cpu_clock.container.cpu_layout.label.text = tonumber(average) .. "Mhz"
-      elseif clock_mode then
-        cpu_clock.container.cpu_layout.label.text = tonumber(cpu_freq[clock_mode]) .. "Mhz"
-      end
+        w:get_children_by_id('icon_role')[1].image = temp_icon
+        set_bg(temp_color)
+        w:get_children_by_id('text_role')[1].text = mfloor(temp) .. '°C'
+      end)
+
+      return w
+    elseif widget == 'usage' then
+      local cpu_usage_helper = require('src.tools.helpers.cpu_usage')
+
+      local w = base.make_widget_from_value(wibox.widget {
+        {
+          {
+            {
+              {
+                {
+                  id = 'icon_role',
+                  widget = wibox.widget.imagebox,
+                  valign = 'center',
+                  halign = 'center',
+                  image = gcolor.recolor_image(icon_dir .. 'cpu.svg', beautiful.colorscheme.bg),
+                  resize = true,
+                },
+                widget = wibox.container.constraint,
+                width = dpi(25),
+                height = dpi(25),
+                strategy = 'exact',
+              },
+              {
+                id = 'text_role',
+                text = '0%',
+                halign = 'center',
+                valign = 'center',
+                widget = wibox.widget.textbox,
+              },
+              spacing = dpi(5),
+              layout = wibox.layout.fixed.horizontal,
+            },
+            widget = wibox.container.place,
+          },
+          left = dpi(5),
+          right = dpi(5),
+          widget = wibox.container.margin,
+        },
+        bg = beautiful.colorscheme.bg_blue,
+        fg = beautiful.colorscheme.bg,
+        shape = beautiful.shape[6],
+        widget = wibox.container.background,
+      })
+
+      hover.bg_hover { widget = w }
+
+      cpu_usage_helper:connect_signal('update::cpu_usage', function(_, usage)
+        w:get_children_by_id('text_role')[1].text = usage .. '%'
+      end)
+
+      return w
+    elseif widget == 'freq' then
+      local cpu_freq_helper = require('src.tools.helpers.cpu_freq')
+
+      local w = base.make_widget_from_value(wibox.widget {
+        {
+          {
+            {
+              {
+                {
+                  id = 'icon_role',
+                  widget = wibox.widget.imagebox,
+                  valign = 'center',
+                  halign = 'center',
+                  image = gcolor.recolor_image(icon_dir .. 'cpu.svg', beautiful.colorscheme.bg),
+                  resize = true,
+                },
+                widget = wibox.container.constraint,
+                width = dpi(25),
+                height = dpi(25),
+                strategy = 'exact',
+              },
+              {
+                id = 'text_role',
+                text = '0Mhz',
+                halign = 'center',
+                valign = 'center',
+                widget = wibox.widget.textbox,
+              },
+              spacing = dpi(5),
+              layout = wibox.layout.fixed.horizontal,
+            },
+            widget = wibox.container.place,
+          },
+          left = dpi(5),
+          right = dpi(5),
+          widget = wibox.container.margin,
+        },
+        bg = beautiful.colorscheme.bg_blue,
+        fg = beautiful.colorscheme.bg,
+        shape = beautiful.shape[6],
+        widget = wibox.container.background,
+      })
+
+      hover.bg_hover { widget = w }
+
+      cpu_freq_helper:connect_signal('update::cpu_freq_average', function(_, average)
+        w:get_children_by_id('text_role')[1].text = average .. 'Mhz'
+      end)
+
+      cpu_freq_helper:connect_signal('update::cpu_freq_core', function(_, freq)
+        w:get_children_by_id('text_role')[1].text = freq .. 'Mhz'
+      end)
+
+      return w
     end
-  )
-
-  Hover_signal(cpu_usage_widget, color["Blue200"], color["Grey900"])
-  Hover_signal(cpu_clock, color["Purple200"], color["Grey900"])
-
-  if widget == "usage" then
-    return cpu_usage_widget
-  elseif widget == "temp" then
-    return cpu_temp
-  elseif widget == "freq" then
-    return cpu_clock
-  end
-
+  end, })
 end
+return instance
